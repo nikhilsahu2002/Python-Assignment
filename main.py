@@ -1,80 +1,78 @@
-from fastapi import FastAPI, HTTPException
-from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel
+from typing import List
+from datetime import datetime
+from uuid import uuid4
 
-# Initialize FastAPI app
 app = FastAPI()
 
-# Define data model for water quality observation record
-class WaterQualityObservation(BaseModel):
-    location: dict
-    date_time: str
-    description: str
-    parameters: dict
+# Mock database
+users_db = {}
+referrals_db = {}
 
-# Mock data storage (replace with database integration later)
-observations = []
+class User(BaseModel):
+    name: str
+    email: str
+    password: str
+    referral_code: str = None
 
-# Function to initialize dummy data
-def initialize_dummy_data():
-    global observations
-    dummy_data = [
-        {
-            "location": {"latitude": 40.712776, "longitude": -74.005974},
-            "date_time": "2024-03-19T15:00:00Z",
-            "description": "early afternoon water quality observation at Nehru Park",
-            "parameters": {"pH": 7.4, "conductivity": 250, "DO": 67, "contaminants": ["Lead", "Arsenic"]}
-        },
-        {
-            "location": {"latitude": 42.3601, "longitude": -71.0589},
-            "date_time": "2024-03-20T10:00:00Z",
-            "description": "morning water quality observation at Boston Harbor",
-            "parameters": {"pH": 7.2, "conductivity": 270, "DO": 70, "contaminants": ["Mercury", "Cadmium"]}
-        }
-    ]
-    observations = [WaterQualityObservation(**data) for data in dummy_data]
+class UserDetails(BaseModel):
+    name: str
+    email: str
+    referral_code: str
+    timestamp: datetime
 
-# Initialize dummy data
-initialize_dummy_data()
+class Referral(BaseModel):
+    name: str
+    email: str
+    timestamp: datetime
 
-# Create operation
-@app.post("/observations/")
-async def create_observation(observation: WaterQualityObservation):
-    observations.append(observation)
-    return observation
+def get_auth_token(token: str = Header(...)):
+    # Dummy authentication logic
+    if token != "valid_token":
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-# Read operation
-@app.get("/observations/", response_model=List[WaterQualityObservation])
-async def read_observations():
-    return observations
+@app.post("/register/", response_model=UserDetails)
+async def register_user(user: User):
+    user_id = str(uuid4())
+    timestamp = datetime.now()
+    user_data = {
+        "name": user.name,
+        "email": user.email,
+        "password": user.password,
+        "referral_code": user.referral_code,
+        "timestamp": timestamp
+    }
+    users_db[user_id] = user_data
+    
+    # If there's a referral code, add it to the referrals_db
+    if user.referral_code:
+        referrals_db.setdefault(user.referral_code, []).append({
+            "name": user.name,
+            "email": user.email,
+            "timestamp": timestamp
+        })
+    
+    return user_data
 
-@app.get("/observations/{observation_id}", response_model=WaterQualityObservation)
-async def read_observation(observation_id: int):
-    try:
-        return observations[observation_id]
-    except IndexError:
-        raise HTTPException(status_code=404, detail="Observation not found")
+@app.get("/details/", response_model=UserDetails)
+async def get_user_details(auth=Depends(get_auth_token)):
+    # Dummy logic to retrieve user details from auth token
+    user_id = "dummy_user_id"
+    if user_id not in users_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    return users_db[user_id]
 
-# Update operation
-@app.put("/observations/{observation_id}", response_model=WaterQualityObservation)
-async def update_observation(observation_id: int, observation: WaterQualityObservation):
-    try:
-        observations[observation_id] = observation
-        return observation
-    except IndexError:
-        raise HTTPException(status_code=404, detail="Observation not found")
+@app.get("/referrals/", response_model=List[Referral])
+async def get_user_referrals(auth=Depends(get_auth_token)):
+    # Dummy logic to retrieve user details from auth token
+    user_id = "dummy_user_id"
+    if user_id not in users_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    referral_code = users_db[user_id]["referral_code"]
+    if not referral_code:
+        raise HTTPException(status_code=404, detail="User has no referrals")
+    if referral_code not in referrals_db:
+        return []
+    return referrals_db[referral_code]
 
-# Delete operation
-@app.delete("/observations/{observation_id}")
-async def delete_observation(observation_id: int):
-    try:
-        del observations[observation_id]
-        return {"message": "Observation deleted successfully"}
-    except IndexError:
-        raise HTTPException(status_code=404, detail="Observation not found")
-
-# Search functionality
-@app.get("/observations/search/")
-async def search_observations(latitude: float, longitude: float, start_date: Optional[str] = None, end_date: Optional[str] = None):
-    filtered_observations = [obs for obs in observations if obs.location["latitude"] == latitude and obs.location["longitude"] == longitude]
-    return filtered_observations
