@@ -3,3 +3,4 @@ uvicorn
 numpy
 tensorflow  # Or whichever version is compatible with your Keras model
 Pillow
+python-multipart
