@@ -1,85 +1,56 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
-from pydantic import BaseModel
-from typing import List
-from datetime import datetime
-from uuid import uuid4
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse
+from keras.models import load_model
+from keras.preprocessing import image
+import numpy as np
+import os
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Mock database
-users_db = {}
-referrals_db = {}
-auth_tokens = {}  # Store authentication tokens
+# Load the trained model
+model_path = "Autisum_Detector_Model_main_Epoch_50.h5"
+model = load_model(model_path)
 
-class User(BaseModel):
-    name: str
-    email: str
-    password: str
-    referral_code: str = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
 
-class UserDetails(BaseModel):
-    name: str
-    email: str
-    referral_code: str
-    timestamp: datetime
-    token: str  # Include token in UserDetails response
 
-class Referral(BaseModel):
-    name: str
-    email: str
-    timestamp: datetime
-
-def generate_token():
-    return str(uuid4())
-
-@app.post("/register/", response_model=UserDetails)
-async def register_user(user: User):
-    user_id = str(uuid4())
-    timestamp = datetime.now()
-    token = generate_token()  # Generate token for the user
-    user_data = {
-        "name": user.name,
-        "email": user.email,
-        "password": user.password,
-        "referral_code": user.referral_code,
-        "timestamp": timestamp,
-        "token": token
-    }
-    users_db[user_id] = user_data
-    auth_tokens[token] = user_id  # Store token with user_id
+# Function to process the uploaded image
+@app.post("/process_image/")
+async def process_image(file: UploadFile = File(...)):
+    try:
+        # Create a temporary file to save the uploaded image
+        temp_file_path = 'temp_img.jpg'
+        with open(temp_file_path, 'wb') as temp_file:
+            temp_file.write(await file.read())
+        
+        # Read the image file
+        img = image.load_img(temp_file_path, target_size=(128, 128))
+        
+        # Convert the image to a numpy array
+        img_array = image.img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)  # Add batch size dimension
+        img_array = img_array / 255.0  # Normalize pixel values
+        
+        # Make prediction
+        prediction = model.predict(img_array)
+        
+        # Return the result
+        result = "The MRI image has Autism." if prediction[0, 0] >= 0.5 else "The MRI image does not have Autism."
+        
+        # Delete the temporary file
+        os.remove(temp_file_path)
+        
+        return JSONResponse({"result": result})
     
-    # If there's a referral code, add it to the referrals_db
-    if user.referral_code:
-        referrals_db.setdefault(user.referral_code, []).append({
-            "name": user.name,
-            "email": user.email,
-            "timestamp": timestamp
-        })
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Model file not found")
     
-    return user_data
-
-def get_user_id_from_token(token: str = Header(...)):
-    if token not in auth_tokens:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    return auth_tokens[token]
-
-@app.get("/details/", response_model=UserDetails)
-async def get_user_details(user_id: str = Depends(get_user_id_from_token)):
-    # Retrieve user details using user_id
-    user_data = users_db.get(user_id)
-    if not user_data:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user_data
-
-@app.get("/referrals/", response_model=List[Referral])
-async def get_user_referrals(user_id: str = Depends(get_user_id_from_token)):
-    # Dummy logic to retrieve user details from auth token
-    user_data = users_db.get(user_id)
-    if not user_data:
-        raise HTTPException(status_code=404, detail="User not found")
-    referral_code = user_data["referral_code"]
-    if not referral_code:
-        raise HTTPException(status_code=404, detail="User has no referrals")
-    if referral_code not in referrals_db:
-        return []
-    return referrals_db[referral_code]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
