@@ -1,8 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
 numpy
-tensorflow  # Or whichever version is compatible with your Keras model
+tensorflow
 Pillow
 python-multipart
 motor[asyncio]
 pydantic
+opencv-python-headless # Add OpenCV for image processing
+mtcnn 
