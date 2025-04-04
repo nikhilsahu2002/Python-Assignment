@@ -8,3 +8,7 @@ motor[asyncio]
 pydantic
 opencv-python-headless # Add OpenCV for image processing
 mtcnn 
+keras
+scikit-fuzzy
+scipy
+networkx
